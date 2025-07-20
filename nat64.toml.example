@@ -1,0 +1,29 @@
+# nat64 configuration
+#
+# TUN device name — create with:
+#   ip tuntap add mode tun nat64
+#   ip link set nat64 up
+#   ip addr add 192.168.255.1/32 dev nat64
+#   ip addr add 2001:db8:1::1/128 dev nat64
+#   ip route add 192.0.2.0/24 dev nat64
+#   ip route add 2001:db8:1:ffff::/96 dev nat64
+
+tun_device = "nat64"
+
+# NAT64 /96 prefix — IPv4 addresses are embedded in the last 32 bits.
+# For example, 192.0.2.1 becomes 2001:db8:1:ffff::c000:201
+prefix = "2001:db8:1:ffff::"
+
+# Local IPv4 address for this translator (used as source for ICMP errors)
+ipv4_addr = "192.168.255.1"
+
+# Static 1:1 mappings (optional — without these, RFC 6052 prefix embedding is used)
+# Each entry maps a specific IPv4 address to a specific IPv6 address.
+#
+# [[map]]
+# ipv4 = "192.0.2.10"
+# ipv6 = "2001:db8:1:4444::10"
+#
+# [[map]]
+# ipv4 = "192.0.2.11"
+# ipv6 = "2001:db8:1:4444::11"

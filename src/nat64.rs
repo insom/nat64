@@ -185,3 +185,167 @@ pub fn detect_ip_version(packet: &[u8]) -> Option<u8> {
         _ => None,
     }
 }
+
+/// Map an IPv6 address to IPv4 using config (static maps first, then prefix extraction).
+fn map_ip6_to_ip4(config: &ParsedConfig, addr: &Ipv6Addr) -> Option<Ipv4Addr> {
+    // Check static mappings first
+    if let Some(v4) = config.map6to4.get(addr) {
+        return Some(*v4);
+    }
+    // Fall back to prefix extraction
+    config::extract_ipv4_from_prefix(&config.prefix, addr)
+}
+
+/// Translate an IPv6 packet to IPv4.
+pub fn translate_6to4(
+    config: &ParsedConfig,
+    packet: &[u8],
+) -> Result<TranslatedPacket, TranslateError> {
+    if packet.len() < IPV6_HEADER_LEN {
+        return Err(TranslateError::PacketTooShort);
+    }
+
+    let version = packet[0] >> 4;
+    if version != 6 {
+        return Err(TranslateError::InvalidHeader);
+    }
+
+    let traffic_class = ((packet[0] & 0x0f) << 4) | (packet[1] >> 4);
+    let payload_len = u16::from_be_bytes([packet[4], packet[5]]) as usize;
+    let mut next_header = packet[6];
+    let hop_limit = packet[7];
+
+    if hop_limit <= 1 {
+        log::debug!("Dropping IPv6 packet: hop limit expired");
+        return Err(TranslateError::InvalidHeader);
+    }
+
+    let src6 = Ipv6Addr::from(<[u8; 16]>::try_from(&packet[8..24]).unwrap());
+    let dst6 = Ipv6Addr::from(<[u8; 16]>::try_from(&packet[24..40]).unwrap());
+
+    // Map addresses
+    let src4 = map_ip6_to_ip4(config, &src6).ok_or(TranslateError::AddressNotMapped)?;
+    let dst4 = map_ip6_to_ip4(config, &dst6).ok_or(TranslateError::AddressNotMapped)?;
+
+    // Walk extension headers to find the payload
+    let mut offset = IPV6_HEADER_LEN;
+    let packet_end = IPV6_HEADER_LEN + payload_len;
+    if packet.len() < packet_end {
+        return Err(TranslateError::PacketTooShort);
+    }
+
+    let mut frag_offset: u16 = 0;
+    let mut more_fragments = false;
+    let mut identification: u32 = 0;
+    let mut has_frag_header = false;
+
+    // Process extension headers
+    loop {
+        match next_header {
+            IPPROTO_FRAGMENT => {
+                if offset + IPV6_FRAG_HEADER_LEN > packet_end {
+                    return Err(TranslateError::PacketTooShort);
+                }
+                has_frag_header = true;
+                next_header = packet[offset];
+                let frag_off_mf = u16::from_be_bytes([packet[offset + 2], packet[offset + 3]]);
+                frag_offset = frag_off_mf >> 3;
+                more_fragments = (frag_off_mf & 1) != 0;
+                identification = u32::from_be_bytes([
+                    packet[offset + 4],
+                    packet[offset + 5],
+                    packet[offset + 6],
+                    packet[offset + 7],
+                ]);
+                offset += IPV6_FRAG_HEADER_LEN;
+            }
+            // Hop-by-hop, destination options, routing — skip them
+            0 | 43 | 60 => {
+                if offset + 2 > packet_end {
+                    return Err(TranslateError::PacketTooShort);
+                }
+                next_header = packet[offset];
+                let ext_len = (packet[offset + 1] as usize + 1) * 8;
+                offset += ext_len;
+            }
+            _ => break,
+        }
+    }
+
+    let payload = &packet[offset..packet_end];
+
+    // Simple payload translation for TCP/UDP
+    let (ipv4_proto, translated_payload) = match next_header {
+        IPPROTO_TCP => {
+            let mut data = payload.to_vec();
+            if data.len() >= 18 {
+                let old_cksum = u16::from_be_bytes([data[16], data[17]]);
+                let new_cksum = checksum::convert_checksum_6to4(old_cksum, &src6, &dst6, &src4, &dst4);
+                data[16] = (new_cksum >> 8) as u8;
+                data[17] = (new_cksum & 0xff) as u8;
+            }
+            (IPPROTO_TCP, data)
+        }
+        IPPROTO_UDP => {
+            let mut data = payload.to_vec();
+            if data.len() >= 8 {
+                let old_cksum = u16::from_be_bytes([data[6], data[7]]);
+                let new_cksum = checksum::convert_checksum_6to4(old_cksum, &src6, &dst6, &src4, &dst4);
+                data[6] = (new_cksum >> 8) as u8;
+                data[7] = (new_cksum & 0xff) as u8;
+            }
+            (IPPROTO_UDP, data)
+        }
+        _ => {
+            log::debug!("Passing through next_header {} without checksum fixup", next_header);
+            (next_header, payload.to_vec())
+        }
+    };
+
+    // Build IPv4 packet
+    let total_len = (IPV4_HEADER_LEN + translated_payload.len()) as u16;
+    let mut out = Vec::with_capacity(total_len as usize);
+
+    // Version + IHL (5 = 20 bytes, no options)
+    out.push(0x45);
+    // TOS = traffic class
+    out.push(traffic_class);
+    // Total length
+    out.extend_from_slice(&total_len.to_be_bytes());
+
+    // Identification
+    if has_frag_header {
+        out.extend_from_slice(&(identification as u16).to_be_bytes());
+    } else {
+        out.extend_from_slice(&0u16.to_be_bytes());
+    }
+
+    // Flags + Fragment offset
+    let flags_frag = if has_frag_header {
+        (frag_offset & 0x1fff) | if more_fragments { 0x2000 } else { 0 }
+    } else {
+        // Set DF for unfragmented packets
+        0x4000
+    };
+    out.extend_from_slice(&flags_frag.to_be_bytes());
+
+    // TTL (decremented hop limit)
+    out.push(hop_limit - 1);
+    // Protocol
+    out.push(ipv4_proto);
+    // Header checksum placeholder
+    out.extend_from_slice(&0u16.to_be_bytes());
+    // Source and destination IPv4
+    out.extend_from_slice(&src4.octets());
+    out.extend_from_slice(&dst4.octets());
+
+    // Calculate and fill in header checksum
+    let cksum = checksum::ipv4_header_checksum(&out[..IPV4_HEADER_LEN]);
+    out[10] = (cksum >> 8) as u8;
+    out[11] = (cksum & 0xff) as u8;
+
+    // Append payload
+    out.extend_from_slice(&translated_payload);
+
+    Ok(TranslatedPacket { data: out })
+}

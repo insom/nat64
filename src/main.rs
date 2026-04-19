@@ -73,7 +73,7 @@ fn main() {
 
         loop {
             match tun.read_packet(&mut recv_buf) {
-                Ok(n) if n == 0 => break,
+                Ok(0) => break,
                 Ok(n) => {
                     let packet = &recv_buf[..n];
                     handle_packet(&cfg, &mut tun, packet, &mut stats);
@@ -115,7 +115,7 @@ fn handle_packet(
             let r = nat64::translate_4to6(cfg, packet);
             if r.is_ok() {
                 stats.pkts_4to6 += 1;
-                if stats.pkts_4to6 % 1000 == 0 {
+                if stats.pkts_4to6.is_multiple_of(1000) {
                     log::info!(
                         "Stats: 4→6: {}, 6→4: {}, errors: {}",
                         stats.pkts_4to6,

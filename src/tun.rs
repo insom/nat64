@@ -51,7 +51,7 @@ impl TunDevice {
             OFlag::O_RDWR | OFlag::O_NONBLOCK,
             nix::sys::stat::Mode::empty(),
         )
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(io::Error::other)?;
 
         // Safety: we just opened the fd
         let file = unsafe { File::from_raw_fd(fd) };
@@ -68,7 +68,7 @@ impl TunDevice {
 
         unsafe {
             tun_set_iff(file.as_raw_fd(), &ifreq)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                .map_err(io::Error::other)?;
         }
 
         let actual_name = {
@@ -95,7 +95,7 @@ impl TunDevice {
             nix::sys::socket::SockFlag::empty(),
             None,
         )
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(io::Error::other)?;
 
         let mut ifreq = IfReqMtu {
             ifr_name: [0u8; 16],
@@ -108,7 +108,7 @@ impl TunDevice {
 
         unsafe {
             get_if_mtu(sock.as_raw_fd(), &mut ifreq)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                .map_err(io::Error::other)?;
         }
 
         Ok(ifreq.ifr_mtu as u16)

@@ -50,11 +50,8 @@ const ICMPV6_UNREACH_PORT: u8 = 4;
 #[derive(Debug)]
 pub enum TranslateError {
     PacketTooShort,
-    UnsupportedProtocol(u8),
     InvalidHeader,
     AddressNotMapped,
-    FragmentedPacket,
-    ChecksumError,
     IcmpTranslationUnsupported,
 }
 
@@ -553,7 +550,7 @@ fn translate_icmp_error_4to6(
     if mtu_adjust {
         // Packet Too Big: extract MTU from ICMPv4 bytes 6-7 and adjust
         let mtu_v4 = u16::from_be_bytes([payload[6], payload[7]]);
-        let mtu_v6 = (mtu_v4 as u32 + MTU_ADJ as u32).min(0xffff) as u32;
+        let mtu_v6 = (mtu_v4 as u32 + MTU_ADJ as u32).min(0xffff);
         data.extend_from_slice(&mtu_v6.to_be_bytes());
     } else {
         // Unused / pointer field
@@ -760,7 +757,6 @@ mod tests {
             tun_device: "test0".to_string(),
             prefix: "2001:db8:1:ffff::".parse().unwrap(),
             ipv4_addr: "192.168.255.1".parse().unwrap(),
-            ipv6_addr: None,
             map4to6: HashMap::new(),
             map6to4: HashMap::new(),
         }

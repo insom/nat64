@@ -16,9 +16,6 @@ pub struct Config {
     /// TAYGA-style local IPv4 address used as the source for ICMP errors
     pub ipv4_addr: String,
 
-    /// Optional local IPv6 address
-    pub ipv6_addr: Option<String>,
-
     /// Static 1:1 address mappings: IPv4 → IPv6
     #[serde(default)]
     pub map: Vec<StaticMapping>,
@@ -40,7 +37,6 @@ pub struct ParsedConfig {
     pub tun_device: String,
     pub prefix: Ipv6Addr,
     pub ipv4_addr: Ipv4Addr,
-    pub ipv6_addr: Option<Ipv6Addr>,
     /// Static maps: IPv4 → IPv6 and IPv6 → IPv4
     pub map4to6: HashMap<Ipv4Addr, Ipv6Addr>,
     pub map6to4: HashMap<Ipv6Addr, Ipv4Addr>,
@@ -74,14 +70,6 @@ impl Config {
             .parse()
             .map_err(|e| format!("Invalid ipv4_addr '{}': {}", self.ipv4_addr, e))?;
 
-        let ipv6_addr = match &self.ipv6_addr {
-            Some(s) => Some(
-                s.parse::<Ipv6Addr>()
-                    .map_err(|e| format!("Invalid ipv6_addr '{}': {}", s, e))?,
-            ),
-            None => None,
-        };
-
         let mut map4to6 = HashMap::new();
         let mut map6to4 = HashMap::new();
 
@@ -110,7 +98,6 @@ impl Config {
             tun_device: self.tun_device,
             prefix,
             ipv4_addr,
-            ipv6_addr,
             map4to6,
             map6to4,
         })

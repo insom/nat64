@@ -3,6 +3,9 @@ name = "nat64"
 version = "0.1.0"
 edition = "2021"
 description = "Static NAT64 translator — allows IPv6-only hosts to appear on the IPv4 Internet"
+license = "GPL-3.0"
+repository = "https://github.com/insom/nat64"
+readme = "README.md"
 
 [dependencies]
 toml = "0.8"

@@ -17,9 +17,6 @@ prefix = "2001:db8:1:ffff::"
 # Local IPv4 address for this translator (used as source for ICMP errors)
 ipv4_addr = "192.168.255.1"
 
-# Optional local IPv6 address
-ipv6_addr = "2001:db8:1::1"
-
 # Static 1:1 mappings (optional — without these, RFC 6052 prefix embedding is used)
 # Each entry maps a specific IPv4 address to a specific IPv6 address.
 #

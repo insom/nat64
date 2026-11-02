@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, RawFd};
 
 use nix::fcntl::OFlag;
 
@@ -53,8 +53,7 @@ impl TunDevice {
         )
         .map_err(io::Error::other)?;
 
-        // Safety: we just opened the fd
-        let file = unsafe { File::from_raw_fd(fd) };
+        let file = File::from(fd);
 
         let mut ifreq = IfReq {
             ifr_name: [0u8; 16],
@@ -67,8 +66,7 @@ impl TunDevice {
         ifreq.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
 
         unsafe {
-            tun_set_iff(file.as_raw_fd(), &ifreq)
-                .map_err(io::Error::other)?;
+            tun_set_iff(file.as_raw_fd(), &ifreq).map_err(io::Error::other)?;
         }
 
         let actual_name = {
@@ -107,8 +105,7 @@ impl TunDevice {
         ifreq.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
 
         unsafe {
-            get_if_mtu(sock.as_raw_fd(), &mut ifreq)
-                .map_err(io::Error::other)?;
+            get_if_mtu(sock.as_raw_fd(), &mut ifreq).map_err(io::Error::other)?;
         }
 
         Ok(ifreq.ifr_mtu as u16)

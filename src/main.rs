@@ -49,9 +49,8 @@ fn main() {
     };
 
     log::info!(
-        "TUN device '{}' ready, MTU={}, entering packet loop",
-        tun.name(),
-        tun.mtu
+        "TUN device '{}' ready, entering packet loop",
+        tun.name()
     );
 
     let mut recv_buf = vec![0u8; RECV_BUF_SIZE];
